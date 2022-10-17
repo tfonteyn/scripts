@@ -1,30 +1,36 @@
 #!/bin/sh
 #
-# To the extent possible under law, Red Hat, Inc. has dedicated all copyright to this software to the public domain worldwide,
-# pursuant to the CC0 Public Domain Dedication. This software is distributed without any warranty.
-# See http://creativecommons.org/publicdomain/zero/1.0/
+# @License GNU General Public License
 #
-# This script generates a set of JKS keystores with mutual trust (2-way SSL) using a CA + intermediate CA, as well as a variety of other supporting files.
+# gencerts.sh is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# gencerts.sh is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with gencerts.sh. If not, see <http://www.gnu.org/licenses/>.
+#
+# This script generates a set of PKCS12 keystores with mutual trust (2-way SSL)
+# using a CA + intermediate CA, as well as a variety of other supporting files.
 #
 # It uses RSA for keys and SHA256withRSA for signing as default
 #
-# Key and Signature names: http://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html
+# Key and Signature names:
+# https://docs.oracle.com/en/java/javase/15/docs/specs/security/standard-names.html
 #
-#
-VERSION="2016-09-26"
+# This version solely uses PKCS12 as the storetype, and is no longer tested with JBoss EAP!
+VERSION="2022-10-17"
 #
 #set -x
-
-# java version "xxx", so filter for the line first, then for a quote followed by number
-# vs=`java -version 2>&1 | grep "java version" | grep -e "\"1\.7" -e "\"1\.8" -e "\"9" | head -1`
-vs=`java -version 2>&1 | grep -P "(java|openjdk) version" | grep -e "\"1\.7" -e "\"1\.8" -e "\"9" | head -1`
-
-if [ -z "${vs}" ]; then
-  echo "This script needs Java 7 or up"
-  exit
-fi
-# defaults: can be overridden by creating a file "~/.cli-config" with your personal values or with command line options
-
+#
+# defaults: can be overridden by creating a file "~/.cli-config" with your
+# personal values or with command line options
+#
 #----------------------------------------------------------------------------
 # CA generation, used as filename and as certificate alias.
 CA_ALIAS="ca"
@@ -85,7 +91,7 @@ set -e
 
 function usage()
 {
-  echo "Generate Key and Trust stores for two way authentication - Author: Tom Fonteyne, version: $VERSION"
+  echo "Generate Key and Trust stores for two way authentication - Author: T. Fonteyne, version: $VERSION"
   echo " "
   echo "This script will generate all you need for full two way SSL communication including a CA"
   echo "It is meant as an example only, and you will likely want to use your own/existing CA instead,"
@@ -98,8 +104,11 @@ function usage()
   echo " "
   echo "Full usage:"
   echo " "
-  echo "  $0 [-v] -s <server> [-sdn <server-dn>] -c <client> [-cdn <client-dn>]"
-  echo "     [-ca <name>] [-cadn <ca-dn>] [-ica <name>] [-icadn <ica-dn>]"
+  echo "  $0 [-v]"
+  echo "     -s <server> [-sdn <server-dn>] [-sip <server-ip>]"
+  echo "     -c <client> [-cdn <client-dn>] [-cip <client-ip>]"
+  echo "     [-ca <name>] [-cadn <ca-dn>]"
+  echo "     [-ica <name>] [-icadn <ica-dn>]"
   echo "     [-b <browser>] [-bdn <browser-dn>]"
   echo "     [-p <password>] [-d <days>]"
   echo "     [-ks <keysize>] [-ka <key-algorithm>] [-sa <signing-algorith>]"
@@ -107,21 +116,25 @@ function usage()
   echo " "
   echo "  -v    verbose, echo the actual commands to the console"
   echo " "
-  echo "  -s 	fully qualified server host name, typically the JBoss EAP server"
+  echo "  -s 	  fully qualified server host name, typically the JBoss EAP server"
   echo "  -sdn  the dname for the server host, normally not needed as you should be using the fully qualified server host name"
   echo "        default: cn=<-c value>"
+  echo "  -sip  server ip address"
+  echo "        default: not set"
   echo " "
-  echo "  -c 	client host name, typically Apache, the JBoss CLI, or any other client or server which requires a 2-way SSL setup"
+  echo "  -c 	  client host name, typically Apache, the JBoss CLI, or any other client or server which requires a 2-way SSL setup"
   echo "  -cdn  the dname for the client host"
   echo "        default: cn=<-c value>"
+  echo "  -cip  client ip address"
+  echo "        default: not set"
   echo " "
-  echo "  -ca   name for the CA cert, if a keystore (jks) file with the CA name is found,"
+  echo "  -ca   name for the CA cert, if a keystore (p12) file with the CA name is found,"
   echo "        then this file will used."
   echo "        default: $CA_ALIAS"
   echo "  -cadn the dname for the CA"
   echo "        default: cn=$CA_ALIAS"
   echo " "
-  echo "  -ica   name for the Intermediate CA cert, if a keystore (jks) file with the ICA name is found,"
+  echo "  -ica   name for the Intermediate CA cert, if a keystore (p12) file with the ICA name is found,"
   echo "         then this file will used."
   echo "         default: $ICA_ALIAS"
   echo "  -icadn the dname for the ICA"
@@ -131,7 +144,7 @@ function usage()
   echo "  -bdn  the name for the browser cert"
   echo "        default: cn=<-b value>"
   echo " "
-  echo "  -p 	password for all certificates, key and truststores"
+  echo "  -p 	  password for all certificates, key and truststores"
   echo "        default: $STORE_PASSWORD"
   echo "  -ks   the number of bits for the keysize"
   echo "        default: $KEYSIZE"
@@ -145,10 +158,10 @@ function usage()
   echo ""
   echo "  -m    generate mod_cluster, mod_proxy and SSL configuration files"
   echo ""
-  echo "  -mcp   <name>    the jboss profile for use in domain mode"
-  echo "                   default: standalone"
-  echo "  -mca             whether to use advertizing"
-  echo "                   default: use \"client host \" as the proxy list" 
+  echo "  -mcp  <name>    the jboss profile for use in domain mode"
+  echo "                  default: standalone"
+  echo "  -mca            whether to use advertizing"
+  echo "                  default: use \"client host \" as the proxy list" 
   echo ""
   echo "   Note that this script is not very secure, as the password will be visible in a 'ps -ef' listing."
   echo " "
@@ -189,14 +202,20 @@ function checkArguments()
     -sdn)
       HOST1_DN="$2"
       shift; shift;;
-      
+    -sip)
+      HOST1_IP="$2"
+      shift; shift;;
+
     -c)
       HOST2="$2"
       shift; shift;;
     -cdn)
       HOST2_DN="$2"
       shift; shift;;
-      
+    -cip)
+      HOST2_IP="$2"
+      shift; shift;;
+
     -ca)
       CA_ALIAS="$2"
       shift; shift;;
@@ -332,7 +351,7 @@ function checkSigAlg()
 function genkeypairError()
 {
   echo "Generating the keypair failed."
-  echo "Hint: if the error was 'incorrect AVA format, then you entered an invalid dname(dn)."
+  echo "Hint: if the error was 'incorrect AVA format', then you entered an invalid dname(dn)."
   echo "DN's need to be of the format 'cn=name'"
   exit
 }
@@ -350,7 +369,7 @@ function createOrFindCA()
   
   # if the CA keystore already exists, we use that one. Otherwise a new one will be created
   # we assume that all other CA related files are still there as well
-  if [ -f "${ca_alias}.jks" ]; then
+  if [ -f "${ca_alias}.p12" ]; then
     return
   fi
 
@@ -361,32 +380,67 @@ function createOrFindCA()
   # the short form becomes then:
   #   -ext bc:c
   #
-  echo -e "\e[00;31m$STEP. Generate the ca keystore with private key and certificate - key uses ${KEYSIZE} bits ${KEYALG}, and signature uses ${SIGALG}\e[00m"
-  verbose keytool -genkeypair -keystore ${ca_alias}.jks -alias ${ca_alias} -dname "${ca_dn}" -validity ${DAYS} \
+  echo -e "\e[00;31m$STEP. Generate the CA keystore with private key and certificate - key uses ${KEYSIZE} bits ${KEYALG}, and signature uses ${SIGALG}\e[00m"
+  verbose keytool -genkeypair \
+                  -storetype pkcs12 \
+                  -keystore ${ca_alias}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -keypass ${STORE_PASSWORD} \
+                  -alias ${ca_alias} \
+                  -dname "${ca_dn}" \
+                  -validity ${DAYS} \
                   -ext BasicConstraints:critical=ca:true \
-                  -keyalg ${KEYALG} -keysize ${KEYSIZE} -sigalg ${SIGALG} \
-                  -keypass ${STORE_PASSWORD} -storepass ${STORE_PASSWORD}
+                  -keyalg ${KEYALG} \
+                  -keysize ${KEYSIZE} \
+                  -sigalg ${SIGALG}
+
   if [ "$?" == "1" ]; then
     genkeypairError 
   fi
   STEP=$(($STEP + 1))
 
-  echo -e "\e[00;31m$STEP. Export the CA certificate to a file, for clients to import into their trust store\e[00m"
-  verbose keytool -exportcert -alias ${ca_alias} -keystore ${ca_alias}.jks -storepass ${STORE_PASSWORD} -file ${ca_alias}.cer
+  echo -e "\e[00;31m$STEP. Export the CA certificate to a binary 'cer' file, for clients to import into their trust store\e[00m"
+  verbose keytool -exportcert \
+                  -storetype pkcs12 \
+                  -keystore ${ca_alias}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -alias ${ca_alias} \
+                  -file ${ca_alias}.cer
   STEP=$(($STEP + 1))
   
-  echo -e "\e[00;31m$STEP. convert the ca cert to pem format\e[00m" 
-  verbose openssl x509 -inform der -in ${ca_alias}.cer -outform pem -out ${ca_alias}.pem
+  echo -e "\e[00;31m$STEP. Export the CA certificate to a textual 'pem' file, for clients to import into their trust store\e[00m"
+  verbose keytool -exportcert \
+                  -storetype pkcs12 \
+                  -keystore ${ca_alias}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -alias ${ca_alias} \
+                  -rfc \
+                  -file ${ca_alias}.pem
   STEP=$(($STEP + 1))
   
-  echo -e "\e[00;31m$STEP. Create the common truststore with the CA certificate (so without key!) \e[00m"
-  verbose keytool -importcert -keystore truststore.jks -storepass ${STORE_PASSWORD} -keypass ${STORE_PASSWORD} -alias ${ca_alias} -trustcacerts -file ${ca_alias}.cer -noprompt
+  echo -e "\e[00;31m$STEP. Create the common truststore with the CA certificate (without key!) \e[00m"
+  verbose keytool -importcert \
+                  -storetype pkcs12 \
+                  -keystore truststore.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -keypass ${STORE_PASSWORD} \
+                  -alias ${ca_alias} \
+                  -trustcacerts \
+                  -file ${ca_alias}.cer \
+                  -noprompt
   STEP=$(($STEP + 1))  
   
-  echo -e "\e[00;31m$STEP. Converting CA JKS to PKCS12\e[00m"
-  verbose keytool -importkeystore -srckeystore ${ca_alias}.jks -srcalias "${ca_alias}" \
-                  -srcstorepass ${STORE_PASSWORD} -srcstoretype jks  \
-                  -destkeystore "${ca_alias}.p12" -deststoretype pkcs12 -deststorepass ${STORE_PASSWORD}
+  # JKS format is deprecated; leaving this command as a comment for reference only
+  # echo -e "\e[00;31m$STEP. Convert the CA PKCS12 keystore to the legacy JKS format for older systems\e[00m"
+  # verbose keytool -importkeystore \
+  #                 -srckeystore ${ca_alias}.p12 \
+  #                 -srcalias "${ca_alias}" \
+  #                 -srcstorepass ${STORE_PASSWORD} \
+  #                 -srcstoretype pkcs12  \
+  #                 -destkeystore "${ca_alias}.jks" \
+  #                 -deststoretype jks \
+  #                 -deststorepass ${STORE_PASSWORD}
+  # STEP=$(($STEP + 1))
   
   CA_WAS_GENERATED=true
   
@@ -396,8 +450,9 @@ function createOrFindCA()
   # reminder: not really needed:
   #prepareCertsForApache "${ICA_ALIAS}"
 
-  echo -e "\e[00;31m$STEP. Create the concatenated ${CA_BUNDLE}.pem\e[00m"
+  echo -e "\e[00;31m$STEP. Create the concatenated ${CA_BUNDLE}.pem containing the CA and the intermediate CA\e[00m"
   cat ${ca_alias}.pem ${ICA_ALIAS}.pem >${CA_BUNDLE}.pem
+  STEP=$(($STEP + 1))
 }
 
 ##########################################################################################################
@@ -413,6 +468,7 @@ function generateSignedKeypair()
 	fi
   local host="$2"
   local dname="$3"
+  local ip="$4"
 
   # Extensions set:
   #   asIntermediateCAorSAN="SubjectAlternativeName=DNS:$host"
@@ -425,16 +481,29 @@ function generateSignedKeypair()
   #   asIntermediateCA="BasicConstraints:critical=ca:true"
   #     when creating an intermediate CA
   #
-	local asIntermediateCAorSAN="SubjectAlternativeName=DNS:$host"
+  local asIntermediateCAorSAN=""
 	if [ "$asICA" == "true" ]; then
 	  asIntermediateCAorSAN="BasicConstraints:critical=ca:true"
-	  shift
+  else
+    asIntermediateCAorSAN="SubjectAlternativeName=DNS:${host}"
+    if [ -n "${ip}" ]; then
+      asIntermediateCAorSAN="${asIntermediateCAorSAN},IP:${ip}"
+    fi
 	fi
-	  echo -e "\e[00;31m$STEP. Generating keystore for ${host} - key uses ${KEYALG}, and signature uses ${SIGALG}\e[00m"
-  verbose keytool -genkeypair -alias ${host} -ext ${asIntermediateCAorSAN} \
-                  -keyalg ${KEYALG} -keysize ${KEYSIZE} -sigalg ${SIGALG} \
-                  -validity ${DAYS} -keystore ${host}.jks -dname "${dname}" \
-                  -keypass ${STORE_PASSWORD} -storepass ${STORE_PASSWORD}
+
+  echo -e "\e[00;31m$STEP. Generating keystore for ${host} - key uses ${KEYALG}, and signature uses ${SIGALG}\e[00m"
+  verbose keytool -genkeypair \
+                  -alias ${host} \
+                  -ext ${asIntermediateCAorSAN} \
+                  -keyalg ${KEYALG} \
+                  -keysize ${KEYSIZE} \
+                  -sigalg ${SIGALG} \
+                  -validity ${DAYS} \
+                  -storetype pkcs12 \
+                  -keystore ${host}.p12 \
+                  -dname "${dname}" \
+                  -keypass ${STORE_PASSWORD} \
+                  -storepass ${STORE_PASSWORD}
   if [ "$?" == "1" ]; then
     genkeypairError
   fi
@@ -442,41 +511,110 @@ function generateSignedKeypair()
   STEP=$(($STEP + 1))
 
   echo -e "\e[00;31m$STEP. Generate a signing request for ${host} using -sigalg ${SIGALG}\e[00m"
-  verbose keytool -certreq -keystore ${host}.jks -storepass ${STORE_PASSWORD} -alias ${host} -sigalg ${SIGALG} -file ${host}.csr
+  verbose keytool -certreq \
+                  -storetype pkcs12 \
+                  -keystore ${host}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -alias ${host} \
+                  -sigalg ${SIGALG} \
+                  -file ${host}.csr
   STEP=$(($STEP + 1))
 
   echo -e "\e[00;31m$STEP. and sign with ${signer} using ${SIGALG}\e[00m"
-  verbose keytool -gencert -infile ${host}.csr -outfile ${host}.cer -ext ${asIntermediateCAorSAN} \
-                  -keystore ${signer}.jks -alias ${signer} -sigalg ${SIGALG} \
-                  -storepass ${STORE_PASSWORD} -keypass ${STORE_PASSWORD} -validity ${DAYS} 
-  STEP=$(($STEP + 1))
+  verbose keytool -gencert \
+                  -infile ${host}.csr \
+                  -outfile ${host}.cer \
+                  -ext ${asIntermediateCAorSAN} \
+                  -storetype pkcs12 \
+                  -keystore ${signer}.p12 \
+                  -alias ${signer} \
+                  -sigalg ${SIGALG} \
+                  -storepass ${STORE_PASSWORD} \
+                  -keypass ${STORE_PASSWORD}\
+                  -validity ${DAYS} 
+  STEP=$(($STEP + 1))#
+
   # note: specifying an invalid alias will give a NullPointerException without any explanation!
  
   #FIXME: this cert can/should be removed after importing the signed cert in the next step. Leaving it there for now
   #TODO: find out if their is a better way?
   echo -e "\e[00;31m$STEP. Import the ${signer} so a chain can be established \e[00m"
-  verbose keytool -importcert -keystore ${host}.jks -storepass ${STORE_PASSWORD} -keypass ${STORE_PASSWORD} -trustcacerts -alias ${signer} -file ${signer}.cer -noprompt
+  verbose keytool -importcert \
+                  -storetype pkcs12 \
+                  -keystore ${host}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -keypass ${STORE_PASSWORD} \
+                  -trustcacerts -alias ${signer} \
+                  -file ${signer}.cer \
+                  -noprompt
   STEP=$(($STEP + 1))
 
   echo -e "\e[00;31m$STEP. Import the signed certificate for $host \e[00m"
-  verbose keytool -importcert -keystore ${host}.jks -storepass ${STORE_PASSWORD} -keypass ${STORE_PASSWORD} -alias ${host} -file ${host}.cer -noprompt
+  verbose keytool -importcert \
+                  -storetype pkcs12 \
+                  -keystore ${host}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -keypass ${STORE_PASSWORD} \
+                  -alias ${host} \
+                  -file ${host}.cer \
+                  -noprompt
   STEP=$(($STEP + 1))
 
   if [ "$asICA" == "true" ]; then
-		echo -e "\e[00;31m$STEP. Import the signed certificate for $host into the common truststore.jks\e[00m"
-		verbose keytool -importcert -keystore truststore.jks -storepass ${STORE_PASSWORD} -keypass ${STORE_PASSWORD} -alias ${host} -file ${host}.cer -noprompt
-		STEP=$(($STEP + 1))  
+		echo -e "\e[00;31m$STEP. Import the signed certificate for $host into the common truststore.p12\e[00m"
+		verbose keytool -importcert \
+                    -storetype pkcs12 \
+                    -keystore truststore.p12 \
+                    -storepass ${STORE_PASSWORD} \
+                    -keypass ${STORE_PASSWORD} \
+                    -alias ${host} \
+                    -file ${host}.cer \
+                    -noprompt
+		STEP=$(($STEP + 1))
+
+  # JKS format is deprecated; leaving this command as a comment for reference only
+	# 	echo -e "\e[00;31m$STEP. Import the signed certificate for $host into the older truststore.jks\e[00m"
+	# 	verbose keytool -importcert \
+  #                   -storetype jks \
+  #                   -keystore truststore.jks \
+  #                   -storepass ${STORE_PASSWORD} \
+  #                   -keypass ${STORE_PASSWORD} \
+  #                   -alias ${host} \
+  #                   -file ${host}.cer \
+  #                   -noprompt
+  #   STEP=$(($STEP + 1))
+
   fi
-  
-  echo -e "\e[00;31m$STEP. convert the ${host}.cer to pem format\e[00m" 
-  verbose openssl x509 -inform der -in ${host}.cer -outform pem -out ${host}.pem
+    
+  echo -e "\e[00;31m$STEP. Export(convert) the signed ${host} certificate to a textual 'pem' file, for clients to import into their trust store\e[00m"
+  verbose keytool -exportcert \
+                  -storetype pkcs12 \
+                  -keystore ${host}.p12 \
+                  -storepass ${STORE_PASSWORD} \
+                  -alias ${host} \
+                  -rfc \
+                  -file ${host}.pem
   STEP=$(($STEP + 1))
-  
-  echo -e "\e[00;31m$STEP. Converting ${host}.jks to PKCS12\e[00m"
-  verbose keytool -importkeystore -srcalias "${host}" \
-                  -srckeystore ${host}.jks  -srcstoretype jks -srcstorepass ${STORE_PASSWORD} \
-                  -destkeystore "${host}.p12" -deststoretype pkcs12 -deststorepass ${STORE_PASSWORD}
-  STEP=$(($STEP + 1))
+
+  # The cabundle won't exist when we create the initial intermediate CA which is fine.
+  # It will exist when we generate a server certificate.
+  if [ -f "${CA_BUNDLE}.pem" ]; then
+    echo -e "\e[00;31m$STEP. Combine the ${host} certificate with the full CA chain into a single textual 'pem' file.\e[00m"
+    verbose cat ${CA_BUNDLE}.pem  ${host}.pem >${host}.cert-chain.pem
+    STEP=$(($STEP + 1))
+  fi
+
+  # JKS format is deprecated; leaving this command as a comment for reference only
+  # echo -e "\e[00;31m$STEP. Converting ${host}.p12 to JKS for older systems\e[00m"
+  # verbose keytool -importkeystore \
+  #                 -srcalias "${host}" \
+  #                 -srckeystore ${host}.p12 \
+  #                 -srcstoretype pkcs12 \
+  #                 -srcstorepass ${STORE_PASSWORD} \
+  #                 -destkeystore "${host}.jks" \
+  #                 -deststoretype jks \
+  #                 -deststorepass ${STORE_PASSWORD}
+  # STEP=$(($STEP + 1))
 
   # we no longer need the signing request
   rm ${host}.csr
@@ -484,7 +622,7 @@ function generateSignedKeypair()
 
 ##########################################################################################################
 # Export the private keys and do some convertions. They will be needed to for Apache configuration
-# keytool refuses to export the private key, so we use the PKCS12 keystore
+# keytool refuses to export the private key, so we must use the openssl command.
 ##########################################################################################################
 function prepareCertsForApache()
 {
@@ -496,10 +634,6 @@ function prepareCertsForApache()
 
   echo -e "\e[00;31m$STEP. Decrypting key as mod_proxy cannot deal with encrypted keys\e[00m"
   verbose openssl rsa -in ${host}.encrypted_key.pem -out ${host}.key.pem
-  STEP=$(($STEP + 1))
-
-  echo -e "\e[00;31m$STEP. convert the host cert to pem format\e[00m"
-  verbose openssl x509 -inform der -in ${host}.cer -outform pem -out ${host}.pem
   STEP=$(($STEP + 1))
  
   echo -e "\e[00;31m$STEP. Combine the server (unencrypted) key and the client cert into a single pem file for use with SSLProxyMachineCertificateFile\e[00m"
@@ -659,7 +793,7 @@ function createCLIforModclusterSubsystem()
   echo "/extension=org.jboss.as.modcluster:add()"  >>$MP
   echo "batch" >>$MP
   echo "${PROFILE_PREFIX}/subsystem=web/connector=https:add(secure=true,name=https,socket-binding=https,scheme=https,protocol=\"HTTP/1.1\")" >>$MP
-  echo "${PROFILE_PREFIX}/subsystem=web/connector=https/ssl=configuration:add(name=ssl,password=${STORE_PASSWORD},certificate-key-file=\"${JBOSS_CONFDIR}/${jbosshost}.jks\",key-alias=\"${jbosshost}\",ca-certificate-file=\"${JBOSS_CONFDIR}/truststore.jks\",verify-client=true,protocol=\"TLSv1,TLSv1.1,TLSv1.2\")" >>$MP
+  echo "${PROFILE_PREFIX}/subsystem=web/connector=https/ssl=configuration:add(name=ssl,password=${STORE_PASSWORD},certificate-key-file=\"${JBOSS_CONFDIR}/${jbosshost}.p12\",key-alias=\"${jbosshost}\",ca-certificate-file=\"${JBOSS_CONFDIR}/truststore.p12\",verify-client=true,protocol=\"TLSv1,TLSv1.1,TLSv1.2\")" >>$MP
 
   echo "${PROFILE_PREFIX}/subsystem=modcluster:add()" >>$MP
   if [ "${MOD_CLUSTER_ADVERTIZE}" == "true" ]; then
@@ -672,7 +806,7 @@ function createCLIforModclusterSubsystem()
   echo "" >>$MP
   echo "${PROFILE_PREFIX}/subsystem=modcluster/mod-cluster-config=configuration/dynamic-load-provider=configuration:add()" >>$MP
   echo "${PROFILE_PREFIX}/subsystem=modcluster/mod-cluster-config=configuration/dynamic-load-provider=configuration/load-metric=configuration:add(type=busyness)" >>$MP
-  echo "${PROFILE_PREFIX}/subsystem=modcluster/mod-cluster-config=configuration/ssl=configuration:add(key-alias=${jbosshost},certificate-key-file=\"${JBOSS_CONFDIR}/${jbosshost}.jks\",password=${STORE_PASSWORD},ca-certificate-file=\"${JBOSS_CONFDIR}/truststore.jks\", protocol=\"TLSv1,TLSv1.1,TLSv1.2\")" >>$MP
+  echo "${PROFILE_PREFIX}/subsystem=modcluster/mod-cluster-config=configuration/ssl=configuration:add(key-alias=${jbosshost},certificate-key-file=\"${JBOSS_CONFDIR}/${jbosshost}.p12\",password=${STORE_PASSWORD},ca-certificate-file=\"${JBOSS_CONFDIR}/truststore.p12\", protocol=\"TLSv1,TLSv1.1,TLSv1.2\")" >>$MP
   echo "run-batch" >>$MP
 }
 
@@ -686,12 +820,12 @@ createOrFindCA "${CA_ALIAS}" "${CA_DN}"
 # there is no real difference between host 1 and 2, just for convience you can specify
 # two of them in one go. Same is true for the browser certificate.
 if [ -n "${HOST1}" ]; then
-  generateSignedKeypair "${ICA_ALIAS}" "${HOST1}" "${HOST1_DN}"
+  generateSignedKeypair "${ICA_ALIAS}" "${HOST1}" "${HOST1_DN}" "${HOST1_IP}"
   prepareCertsForApache "${HOST1}"
 fi
 
 if [ -n "${HOST2}" ]; then
-  generateSignedKeypair "${ICA_ALIAS}" "${HOST2}" "${HOST2_DN}"
+  generateSignedKeypair "${ICA_ALIAS}" "${HOST2}" "${HOST2_DN}" "${HOST2_IP}"
   prepareCertsForApache "${HOST2}"
 fi
 
@@ -713,49 +847,50 @@ if [ "${CA_WAS_GENERATED}" == "true" ]; then
   echo "==================================================================================="
   echo "CA certificate   : ${CA_ALIAS}.cer"
   echo "                   ${CA_ALIAS}.pem"
-  echo "CA keystore      : ${CA_ALIAS}.jks"
-  echo "                   ${CA_ALIAS}.p12"
+  echo "CA keystore      : ${CA_ALIAS}.p12"
   echo " "
   echo "ICA certificate  : ${ICA_ALIAS}.cer"
   echo "                   ${ICA_ALIAS}.pem"
-  echo "ICA keystore     : ${ICA_ALIAS}.jks"
-  echo "                   ${ICA_ALIAS}.p12"
+  echo "ICA keystore     : ${ICA_ALIAS}.p12"
   echo " "
   echo "Combined ca pems : ${CA_BUNDLE}.pem "
   echo " "
-  echo "Not all of these CA files are needed, it is just convienent to have them"
+  echo "Not all of these CA files are needed, it is just convenient to have them"
 fi
 if [ -n "${HOST1}" -o -n "${HOST2}" -o -n "${BROWSER}" ]; then
   echo "==================================================================================="
   echo " Each generated server certificate will have these files:"
   echo " "
-  echo " *.jks                : Java JKS keystore"
-  echo " *.p12                : PKCS12 keystore (same content as jks)"
+  echo " *.p12                : PKCS12 keystore"
   echo " *.cer                : binary server certificate"
   echo " *.pem                : ascii server certificate"
-  echo " *.encrypted_key.pem  : ascii encrypted private key "
+  echo " *.cert-chain.pem     : ascii server certificate combined with the full CA chain"
+  echo " *.encrypted_key.pem  : ascii encrypted private key"
   echo " *.key.pem            : ascii plaintext private key"
-  echo " *.cert+key.pem       : ascii combined server certificat and plaintext private key"
+  echo " *.cert+key.pem       : ascii combined server certificate and plaintext private key"
 fi
 if [ "${CA_WAS_GENERATED}" == "true" ]; then
   echo "==================================================================================="
-  echo "truststore.jks"
-  keytool -list -keystore truststore.jks -storepass ${STORE_PASSWORD}
+  echo "${CA_ALIAS}.p12"
+  keytool -list -storetype pkcs12 -keystore ${CA_ALIAS}.p12 -storepass ${STORE_PASSWORD}
+  echo "==================================================================================="
+  echo "truststore.p12"
+  keytool -list -storetype pkcs12 -keystore truststore.p12 -storepass ${STORE_PASSWORD}
 fi
 if [ -n "${HOST1}" ]; then
   echo "==================================================================================="
-  echo "${HOST1}.jks"
-  keytool -list -keystore ${HOST1}.jks -storepass ${STORE_PASSWORD}
+  echo "${HOST1}.p12"
+  keytool -list -storetype pkcs12 -keystore ${HOST1}.p12 -storepass ${STORE_PASSWORD}
 fi
 if [ -n "${HOST2}" ]; then
   echo "==================================================================================="
-  echo "${HOST2}.jks"
-  keytool -list -keystore ${HOST2}.jks -storepass ${STORE_PASSWORD}
+  echo "${HOST2}.p12"
+  keytool -list -storetype pkcs12 -keystore ${HOST2}.p12 -storepass ${STORE_PASSWORD}
 fi
 if [ -n "${BROWSER}" ]; then
   echo "==================================================================================="
   echo "${BROWSER}.p12"
-  keytool -list -keystore ${BROWSER}.p12 -storepass ${STORE_PASSWORD} -storetype pkcs12
+  keytool -list -storetype pkcs12 -keystore ${BROWSER}.p12 -storepass ${STORE_PASSWORD}
   echo " "
   echo "Import ${CA_ALIAS}.cer (as an authority)"
   echo "and ${BROWSER}.p12 (personal cert) in your browser"
@@ -767,8 +902,8 @@ if [ "${GENERATE_MOD_FILES}" == "true" ]; then
   echo "   use with jboss-cli.sh to setup the modcluster subsystem and a HTTPS connector"
   echo ""
   echo " Copy these files to the jboss configuration directory"
-  echo "   ${HOST1}.jks"
-  echo "   truststore.jks"
+  echo "   ${HOST1}.p12"
+  echo "   truststore.p12"
   echo "-----------------------------------------------------------------------------------"
   echo "Apache:"
   echo "Copy the following files to /etc/httpd/conf.d  You might need to tweak the file"
