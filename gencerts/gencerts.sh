@@ -450,8 +450,8 @@ function createOrFindCA()
   # reminder: not really needed:
   #prepareCertsForApache "${ICA_ALIAS}"
 
-  echo -e "\e[00;31m$STEP. Create the concatenated ${CA_BUNDLE}.pem containing the CA and the intermediate CA\e[00m"
-  cat ${ca_alias}.pem ${ICA_ALIAS}.pem >${CA_BUNDLE}.pem
+  echo -e "\e[00;31m$STEP. Create the concatenated ${CA_BUNDLE}.pem containing the intermediate CA cert + the CA cert\e[00m"
+  cat ${ICA_ALIAS}.pem ${ca_alias}.pem >${CA_BUNDLE}.pem
   STEP=$(($STEP + 1))
 }
 
@@ -600,7 +600,7 @@ function generateSignedKeypair()
   # It will exist when we generate a server certificate.
   if [ -f "${CA_BUNDLE}.pem" ]; then
     echo -e "\e[00;31m$STEP. Combine the ${host} certificate with the full CA chain into a single textual 'pem' file.\e[00m"
-    verbose cat ${CA_BUNDLE}.pem  ${host}.pem >${host}.cert-chain.pem
+    cat ${host}.pem ${CA_BUNDLE}.pem  >${host}.cert-chain.pem
     STEP=$(($STEP + 1))
   fi
 
@@ -637,7 +637,7 @@ function prepareCertsForApache()
   STEP=$(($STEP + 1))
  
   echo -e "\e[00;31m$STEP. Combine the server (unencrypted) key and the client cert into a single pem file for use with SSLProxyMachineCertificateFile\e[00m"
-  verbose cat ${host}.pem ${host}.key.pem >${host}.cert+key.pem
+  cat ${host}.pem ${host}.key.pem >${host}.cert+key.pem
   STEP=$(($STEP + 1))
 }
 
