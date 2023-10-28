@@ -532,7 +532,7 @@ function generateSignedKeypair()
                   -storepass ${STORE_PASSWORD} \
                   -keypass ${STORE_PASSWORD}\
                   -validity ${DAYS} 
-  STEP=$(($STEP + 1))#
+  STEP=$(($STEP + 1))
 
   # note: specifying an invalid alias will give a NullPointerException without any explanation!
  
